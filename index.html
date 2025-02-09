@@ -67,56 +67,64 @@
                 this.gravity = 9.81;
                 this.cartMass = 1.0;
                 this.poleMasses = Array(numPoles).fill(0.1);
-                this.poleLengths = [0.5, 0.3, 0.2].slice(0, numPoles);
+                // this.poleLengths = [0.5, 0.3, 0.2].slice(0, numPoles);
                 this.dt = 0.02;
                 this.reset();
-            }
+                this.poleLengths = [0.5, 0.3, 0.2].slice(0, numPoles);
+                this.cumulativeLength = this.poleLengths.reduce((sum, len) => sum + len, 0);
+              }
 
-            reset() {
-                this.state = new Array(2 + 2 * this.numPoles).fill(0);
-                this.state = this.state.map(() => (Math.random() - 0.5) * 0.05);
-                return this.state.slice();
-            }
+    step(action) {
+        const [x, x_dot, ...angles] = this.state;
+        
+        const newX = x + this.dt * x_dot;
+        const newXDot = x_dot + action * this.dt;
 
-            step(action) {
-                const [x, x_dot, ...angles] = this.state;
-                
-                const newX = x + this.dt * x_dot;
-                const newXDot = x_dot + action * this.dt;
+        const newAngles = [];
+        let cumulativeAngle = 0;
+        let cumulativeLength = 0;
 
-                const newAngles = [];
-                for(let i = 0; i < this.numPoles; i++) {
-                    const theta = angles[i*2];
-                    const thetaDot = angles[i*2 + 1];
-                    
-                    const thetaAcc = (this.gravity * Math.sin(theta) + 
-                                    Math.cos(theta) * (-action - this.poleMasses[i] * 
-                                    this.poleLengths[i] * thetaDot * thetaDot * 
-                                    Math.sin(theta)) / (this.cartMass + this.poleMasses[i])) / 
-                                    (this.poleLengths[i] * (4.0/3.0 - this.poleMasses[i] * 
-                                    Math.cos(theta) * Math.cos(theta) / 
-                                    (this.cartMass + this.poleMasses[i])));
+        for(let i = 0; i < this.numPoles; i++) {
+            const theta = angles[i*2];
+            const thetaDot = angles[i*2 + 1];
+            
+            // Adjust physics for vertical stacking
+            const effectiveLength = this.poleLengths[i];
+            cumulativeLength += effectiveLength;
+            
+            // Modified angular acceleration calculation for stacked poles
+            const thetaAcc = (this.gravity * Math.sin(theta + cumulativeAngle) + 
+                            Math.cos(theta + cumulativeAngle) * (-action - 
+                            this.poleMasses[i] * effectiveLength * thetaDot * thetaDot * 
+                            Math.sin(theta)) / (this.cartMass + this.poleMasses[i])) / 
+                            (effectiveLength * (4.0/3.0 - this.poleMasses[i] * 
+                            Math.cos(theta + cumulativeAngle) * Math.cos(theta + cumulativeAngle) / 
+                            (this.cartMass + this.poleMasses[i])));
 
-                    newAngles.push(theta + thetaDot * this.dt);
-                    newAngles.push(thetaDot + thetaAcc * this.dt);
-                }
-
-                this.state = [newX, newXDot, ...newAngles];
-                
-                const reward = -Math.abs(newX) - 
-                             newAngles.filter((_, i) => i % 2 === 0)
-                                     .reduce((sum, angle) => sum + Math.abs(angle), 0);
-
-                const done = Math.abs(newX) > 2.4 || 
-                           newAngles.some((angle, i) => i % 2 === 0 && Math.abs(angle) > 0.7);
-
-                return {
-                    state: this.state.slice(),
-                    reward: reward,
-                    done: done
-                };
-            }
+            newAngles.push(theta + thetaDot * this.dt);
+            newAngles.push(thetaDot + thetaAcc * this.dt);
+            
+            cumulativeAngle += theta;
         }
+
+        this.state = [newX, newXDot, ...newAngles];
+        
+        // Adjust reward calculation for vertical stacking
+        const reward = -Math.abs(newX) - 
+                      newAngles.filter((_, i) => i % 2 === 0)
+                              .reduce((sum, angle, i) => sum + Math.abs(angle) * (this.numPoles - i), 0);
+
+        const done = Math.abs(newX) > 2.4 || 
+                    newAngles.some((angle, i) => i % 2 === 0 && Math.abs(angle) > 0.7);
+
+        return {
+            state: this.state.slice(),
+            reward: reward,
+            done: done
+        };
+    }
+}
+
 
         // 2. Define the Neural Network
         class AdvancedNeuralNetwork {
@@ -257,46 +265,167 @@
             }
         }
 
-        // 3. Define the Visualizer
         class CartPoleVisualizer {
-            constructor(canvasId) {
-                this.canvas = document.getElementById(canvasId);
-                this.ctx = this.canvas.getContext('2d');
-                this.scale = 200;
-            }
+    constructor(canvasId) {
+        this.canvas = document.getElementById(canvasId);
+        this.ctx = this.canvas.getContext('2d');
+        this.scale = 200; // pixels per meter
+        
+        // Configuration for visualization
+        this.cartWidth = 50;
+        this.cartHeight = 30;
+        this.poleWidths = [8, 6, 4]; // decreasing width for each pole
+        this.poleLengths = [80, 60, 40]; // decreasing length for each pole
+        this.poleColors = ['#e74c3c', '#3498db', '#2ecc71'];
+        this.jointRadius = [6, 4, 3]; // decreasing joint size for each pole
+        
+        // For smooth animation
+        this.lastDrawTime = 0;
+        this.frameRate = 60;
+        this.smoothingFactor = 0.15; // Lower = smoother but more laggy
+        
+        // State smoothing
+        this.currentState = null;
+        this.targetState = null;
+    }
 
-            draw(state, numPoles) {
-                this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
-                const centerY = this.canvas.height * 0.7;
-                const cartWidth = 50;
-                const cartHeight = 30;
-                
-                const cartX = this.canvas.width/2 + state[0] * this.scale;
-                this.ctx.fillStyle = '#333';
-                this.ctx.fillRect(cartX - cartWidth/2, centerY - cartHeight/2, 
-                                cartWidth, cartHeight);
-
-                const poleWidth = 6;
-                for(let i = 0; i < numPoles; i++) {
-                    const angle = state[2 + i*2];
-                    const length = [100, 75, 50][i];
-                    
-                    this.ctx.save();
-                    this.ctx.translate(cartX, centerY);
-                    this.ctx.rotate(-angle);
-                    
-                    this.ctx.fillStyle = ['#e74c3c', '#3498db', '#2ecc71'][i];
-                    this.ctx.fillRect(-poleWidth/2, -length, poleWidth, length);
-                    
-                    this.ctx.beginPath();
-                    this.ctx.arc(0, 0, 5, 0, 2*Math.PI);
-                    this.ctx.fillStyle = '#000';
-                    this.ctx.fill();
-                    
-                    this.ctx.restore();
-                }
-            }
+    draw(state, numPoles) {
+        const currentTime = performance.now();
+        if (!this.currentState) {
+            this.currentState = [...state];
+            this.targetState = [...state];
+        } else {
+            this.targetState = [...state];
         }
+
+        // Smooth state transition
+        for (let i = 0; i < state.length; i++) {
+            this.currentState[i] += (this.targetState[i] - this.currentState[i]) * this.smoothingFactor;
+        }
+
+        // Clear canvas
+        this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+        
+        // Draw background grid (optional)
+        this.drawGrid();
+
+        const centerY = this.canvas.height * 0.7;
+        const cartX = this.canvas.width/2 + this.currentState[0] * this.scale;
+
+        // Draw cart
+        this.ctx.fillStyle = '#333';
+        this.ctx.strokeStyle = '#000';
+        this.ctx.lineWidth = 2;
+        
+        // Cart with rounded corners
+        this.roundedRect(
+            cartX - this.cartWidth/2,
+            centerY - this.cartHeight/2,
+            this.cartWidth,
+            this.cartHeight,
+            5
+        );
+
+        // Draw wheels
+        this.drawWheels(cartX, centerY);
+
+        // Draw poles (starting from bottom)
+        let currentJointX = cartX;
+        let currentJointY = centerY;
+        let currentAngle = 0;
+
+        for (let i = 0; i < numPoles; i++) {
+            const angle = this.currentState[2 + i*2];
+            const length = this.poleLengths[i];
+            
+            // Calculate next joint position
+            const nextJointX = currentJointX - Math.sin(angle) * length;
+            const nextJointY = currentJointY - Math.cos(angle) * length;
+
+            // Draw pole
+            this.ctx.beginPath();
+            this.ctx.strokeStyle = this.poleColors[i];
+            this.ctx.lineWidth = this.poleWidths[i];
+            this.ctx.lineCap = 'round';
+            this.ctx.moveTo(currentJointX, currentJointY);
+            this.ctx.lineTo(nextJointX, nextJointY);
+            this.ctx.stroke();
+
+            // Draw joint
+            this.ctx.beginPath();
+            this.ctx.fillStyle = '#333';
+            this.ctx.arc(currentJointX, currentJointY, this.jointRadius[i], 0, 2*Math.PI);
+            this.ctx.fill();
+
+            // Update current joint position for next pole
+            currentJointX = nextJointX;
+            currentJointY = nextJointY;
+            currentAngle = angle;
+        }
+
+        // Draw final joint
+        if (numPoles > 0) {
+            this.ctx.beginPath();
+            this.ctx.fillStyle = '#333';
+            this.ctx.arc(currentJointX, currentJointY, this.jointRadius[numPoles-1] * 0.7, 0, 2*Math.PI);
+            this.ctx.fill();
+        }
+    }
+
+    drawGrid() {
+        this.ctx.strokeStyle = '#ddd';
+        this.ctx.lineWidth = 0.5;
+        
+        // Vertical lines
+        for (let x = 0; x < this.canvas.width; x += 50) {
+            this.ctx.beginPath();
+            this.ctx.moveTo(x, 0);
+            this.ctx.lineTo(x, this.canvas.height);
+            this.ctx.stroke();
+        }
+        
+        // Horizontal lines
+        for (let y = 0; y < this.canvas.height; y += 50) {
+            this.ctx.beginPath();
+            this.ctx.moveTo(0, y);
+            this.ctx.lineTo(this.canvas.width, y);
+            this.ctx.stroke();
+        }
+    }
+
+    drawWheels(cartX, centerY) {
+        const wheelRadius = 8;
+        const wheelOffset = 15;
+        
+        // Left wheel
+        this.ctx.beginPath();
+        this.ctx.fillStyle = '#666';
+        this.ctx.arc(cartX - wheelOffset, centerY + this.cartHeight/2, wheelRadius, 0, 2*Math.PI);
+        this.ctx.fill();
+        
+        // Right wheel
+        this.ctx.beginPath();
+        this.ctx.arc(cartX + wheelOffset, centerY + this.cartHeight/2, wheelRadius, 0, 2*Math.PI);
+        this.ctx.fill();
+    }
+
+    roundedRect(x, y, width, height, radius) {
+        this.ctx.beginPath();
+        this.ctx.moveTo(x + radius, y);
+        this.ctx.lineTo(x + width - radius, y);
+        this.ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
+        this.ctx.lineTo(x + width, y + height - radius);
+        this.ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
+        this.ctx.lineTo(x + radius, y + height);
+        this.ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
+        this.ctx.lineTo(x, y + radius);
+        this.ctx.quadraticCurveTo(x, y, x + radius, y);
+        this.ctx.closePath();
+        this.ctx.fill();
+        this.ctx.stroke();
+    }
+}
+
 
         // 4. Finally, define the main CartPoleAI class
         class CartPoleAI {

@@ -330,13 +330,9 @@
                 });
             }
 
-            reset();
-                });
-            }
-
-            reset() {
+                        reset() {
                 this.system = new MultiPoleSystem(this.numPoles);
-                this.network = new NeuralNetwork(2 + 2 * this.numPoles, 24, 1);
+                this.network = new AdvancedNeuralNetwork(2 + 2 * this.numPoles, 1);
                 this.episode = 0;
                 this.updateStats(0);
             }
@@ -350,8 +346,9 @@
                 while(this.isTraining) {
                     let state = this.system.reset();
                     let totalReward = 0;
+                    let stepCount = 0;
                     
-                    for(let step = 0; step < 500 && this.isTraining; step++) {
+                    while(stepCount < 500 && this.isTraining) {
                         // Get action from network
                         const action = this.network.forward(state) * 10; // Scale action
                         
@@ -370,6 +367,8 @@
                         
                         if(result.done) break;
                         
+                        stepCount++;
+                        
                         // Add small delay for visualization
                         await new Promise(r => setTimeout(r, 20));
                     }
@@ -380,8 +379,10 @@
             }
         }
 
-        // Initialize application
-        const app = new CartPoleAI();
+        // Initialize the application
+        document.addEventListener('DOMContentLoaded', () => {
+            const app = new CartPoleAI();
+        });
     </script>
 </body>
 </html>

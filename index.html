@@ -6,11 +6,59 @@
     <!-- Fix favicon 404 error -->
     <link rel="icon" type="image/x-icon" href="data:image/x-icon;base64,AAABAAEAEBAQAAEABAAoAQAAFgAAACgAAAAQAAAAIAAAAAEABAAAAAAAgAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAA/4QAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAERERERERERERAAAAAAAAERAQAAAAAAEBEAEAAAAAEAEQABAAAAEAARAAAQAAEAABEAAAEAEAAAEQAAABEAAAARAAAAEQAAABEAAAEAEAAAEQAAEAABAAARAAEAAAAQABEAEAAAAAEAEQEAAAAAABERERAAAAAAAAEREREREREREAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA">
     <style>
-        /* Previous CSS remains the same */
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            background-color: #f0f0f0;
+        }
+        .container {
+            width: 800px;
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+        }
+        canvas {
+            border: 2px solid #333;
+            margin: 20px 0;
+        }
+        .controls {
+            margin: 20px 0;
+            padding: 10px;
+            background: #eee;
+            border-radius: 5px;
+        }
+        button {
+            padding: 10px 20px;
+            margin: 5px;
+            cursor: pointer;
+        }
+        #stats {
+            font-family: monospace;
+            margin: 10px 0;
+        }
     </style>
 </head>
 <body>
-    <!-- Previous HTML remains the same -->
+    <div class="container">
+        <h1>Multi-Pole Cart Balancing AI</h1>
+        <div class="controls">
+            <label>Number of Poles: 
+                <select id="poleCount">
+                    <option value="1">1 Pole</option>
+                    <option value="2">2 Poles</option>
+                    <option value="3">3 Poles</option>
+                </select>
+            </label>
+            <button id="startTraining">Start Training</button>
+            <button id="stopTraining">Stop Training</button>
+            <button id="resetSystem">Reset</button>
+        </div>
+        <canvas id="cartPoleCanvas" width="800" height="400"></canvas>
+        <div id="stats">Training Statistics: Episode: 0 | Reward: 0</div>
+    </div>
     <script>
         // Enhanced Neural Network with modern architecture
         class AdvancedNeuralNetwork {

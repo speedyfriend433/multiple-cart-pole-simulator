@@ -3,7 +3,6 @@
 <head>
     <meta charset="UTF-8">
     <title>Advanced Multi-Pole Cart Balancing AI</title>
-    <!-- Fix favicon 404 error -->
     <link rel="icon" type="image/x-icon" href="data:image/x-icon;base64,AAABAAEAEBAQAAEABAAoAQAAFgAAACgAAAAQAAAAIAAAAAEABAAAAAAAgAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAA/4QAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAERERERERERERAAAAAAAAERAQAAAAAAEBEAEAAAAAEAEQABAAAAEAARAAAQAAEAABEAAAEAEAAAEQAAABEAAAARAAAAEQAAABEAAAEAEAAAEQAAEAABAAARAAEAAAAQABEAEAAAAAEAEQEAAAAAABERERAAAAAAAAEREREREREREAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA">
     <style>
         body {
@@ -59,42 +58,95 @@
         <canvas id="cartPoleCanvas" width="800" height="400"></canvas>
         <div id="stats">Training Statistics: Episode: 0 | Reward: 0</div>
     </div>
+
     <script>
-        // Enhanced Neural Network with modern architecture
+        // 1. First, define the physics system
+        class MultiPoleSystem {
+            constructor(numPoles) {
+                this.numPoles = numPoles;
+                this.gravity = 9.81;
+                this.cartMass = 1.0;
+                this.poleMasses = Array(numPoles).fill(0.1);
+                this.poleLengths = [0.5, 0.3, 0.2].slice(0, numPoles);
+                this.dt = 0.02;
+                this.reset();
+            }
+
+            reset() {
+                this.state = new Array(2 + 2 * this.numPoles).fill(0);
+                this.state = this.state.map(() => (Math.random() - 0.5) * 0.05);
+                return this.state.slice();
+            }
+
+            step(action) {
+                const [x, x_dot, ...angles] = this.state;
+                
+                const newX = x + this.dt * x_dot;
+                const newXDot = x_dot + action * this.dt;
+
+                const newAngles = [];
+                for(let i = 0; i < this.numPoles; i++) {
+                    const theta = angles[i*2];
+                    const thetaDot = angles[i*2 + 1];
+                    
+                    const thetaAcc = (this.gravity * Math.sin(theta) + 
+                                    Math.cos(theta) * (-action - this.poleMasses[i] * 
+                                    this.poleLengths[i] * thetaDot * thetaDot * 
+                                    Math.sin(theta)) / (this.cartMass + this.poleMasses[i])) / 
+                                    (this.poleLengths[i] * (4.0/3.0 - this.poleMasses[i] * 
+                                    Math.cos(theta) * Math.cos(theta) / 
+                                    (this.cartMass + this.poleMasses[i])));
+
+                    newAngles.push(theta + thetaDot * this.dt);
+                    newAngles.push(thetaDot + thetaAcc * this.dt);
+                }
+
+                this.state = [newX, newXDot, ...newAngles];
+                
+                const reward = -Math.abs(newX) - 
+                             newAngles.filter((_, i) => i % 2 === 0)
+                                     .reduce((sum, angle) => sum + Math.abs(angle), 0);
+
+                const done = Math.abs(newX) > 2.4 || 
+                           newAngles.some((angle, i) => i % 2 === 0 && Math.abs(angle) > 0.7);
+
+                return {
+                    state: this.state.slice(),
+                    reward: reward,
+                    done: done
+                };
+            }
+        }
+
+        // 2. Define the Neural Network
         class AdvancedNeuralNetwork {
             constructor(inputSize, outputSize) {
                 this.inputSize = inputSize;
                 this.outputSize = outputSize;
                 
-                // Architecture sizes
                 this.layer1Size = 256;
                 this.layer2Size = 128;
                 this.layer3Size = 64;
                 
-                // Initialize weights with Xavier/Glorot initialization
                 this.weights1 = this.initializeWeights(inputSize, this.layer1Size);
                 this.weights2 = this.initializeWeights(this.layer1Size, this.layer2Size);
                 this.weights3 = this.initializeWeights(this.layer2Size, this.layer3Size);
                 this.weights4 = this.initializeWeights(this.layer3Size, outputSize);
                 
-                // Initialize biases
                 this.biases1 = new Array(this.layer1Size).fill(0);
                 this.biases2 = new Array(this.layer2Size).fill(0);
                 this.biases3 = new Array(this.layer3Size).fill(0);
                 this.biases4 = new Array(outputSize).fill(0);
                 
-                // Hyperparameters
                 this.learningRate = 0.001;
-                this.beta1 = 0.9; // Adam optimizer parameter
-                this.beta2 = 0.999; // Adam optimizer parameter
+                this.beta1 = 0.9;
+                this.beta2 = 0.999;
                 this.epsilon = 1e-8;
                 
-                // Initialize Adam optimizer parameters
                 this.initializeAdam();
             }
 
             initializeWeights(inputDim, outputDim) {
-                // Xavier/Glorot initialization
                 const limit = Math.sqrt(6 / (inputDim + outputDim));
                 return Array(inputDim).fill().map(() =>
                     Array(outputDim).fill().map(() =>
@@ -104,7 +156,6 @@
             }
 
             initializeAdam() {
-                // Initialize momentum and velocity terms for Adam
                 this.m1 = this.createZeroMatrix(this.inputSize, this.layer1Size);
                 this.v1 = this.createZeroMatrix(this.inputSize, this.layer1Size);
                 this.m2 = this.createZeroMatrix(this.layer1Size, this.layer2Size);
@@ -113,8 +164,7 @@
                 this.v3 = this.createZeroMatrix(this.layer2Size, this.layer3Size);
                 this.m4 = this.createZeroMatrix(this.layer3Size, this.outputSize);
                 this.v4 = this.createZeroMatrix(this.layer3Size, this.outputSize);
-                
-                this.t = 0; // Time step for Adam
+                this.t = 0;
             }
 
             createZeroMatrix(rows, cols) {
@@ -130,51 +180,41 @@
             }
 
             forward(input) {
-                // Store inputs for backprop
                 this.lastInput = input;
 
-                // First hidden layer
                 this.layer1 = input.map((_, i) =>
                     this.weights1[i].reduce((sum, w, j) => 
                         sum + w * input[j], 0) + this.biases1[i]
                 );
                 this.layer1 = this.layer1.map(x => this.leakyReLU(x));
 
-                // Second hidden layer
                 this.layer2 = this.layer1.map((_, i) =>
                     this.weights2[i].reduce((sum, w, j) => 
                         sum + w * this.layer1[j], 0) + this.biases2[i]
                 );
                 this.layer2 = this.layer2.map(x => this.leakyReLU(x));
 
-                // Third hidden layer
                 this.layer3 = this.layer2.map((_, i) =>
                     this.weights3[i].reduce((sum, w, j) => 
                         sum + w * this.layer2[j], 0) + this.biases3[i]
                 );
                 this.layer3 = this.layer3.map(x => this.leakyReLU(x));
 
-                // Output layer
                 const output = this.layer3.map((_, i) =>
                     this.weights4[i].reduce((sum, w, j) => 
                         sum + w * this.layer3[j], 0) + this.biases4[i]
                 );
 
-                // Apply tanh to output for bounded actions
                 return Math.tanh(output[0]);
             }
 
             train(state, action, reward) {
-                this.t += 1; // Increment time step
-                
-                // Forward pass
+                this.t += 1;
                 const prediction = this.forward(state);
                 const error = reward * (action - prediction);
 
-                // Backpropagation
                 let gradient = error;
                 
-                // Update weights using Adam optimizer
                 this.updateLayerAdam(this.weights4, this.layer3, gradient, this.m4, this.v4);
                 gradient = this.backpropLayer(this.weights4, gradient, this.layer3, true);
                 
@@ -195,14 +235,8 @@
                 for(let i = 0; i < weights.length; i++) {
                     for(let j = 0; j < weights[i].length; j++) {
                         const grad = gradient * inputs[j];
-                        
-                        // Update momentum
                         m[i][j] = this.beta1 * m[i][j] + (1 - this.beta1) * grad;
-                        
-                        // Update velocity
                         v[i][j] = this.beta2 * v[i][j] + (1 - this.beta2) * grad * grad;
-                        
-                        // Update weights
                         weights[i][j] += lr_t * m[i][j] / (Math.sqrt(v[i][j]) + this.epsilon);
                     }
                 }
@@ -223,7 +257,48 @@
             }
         }
 
-        // Main application logic
+        // 3. Define the Visualizer
+        class CartPoleVisualizer {
+            constructor(canvasId) {
+                this.canvas = document.getElementById(canvasId);
+                this.ctx = this.canvas.getContext('2d');
+                this.scale = 200;
+            }
+
+            draw(state, numPoles) {
+                this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+                const centerY = this.canvas.height * 0.7;
+                const cartWidth = 50;
+                const cartHeight = 30;
+                
+                const cartX = this.canvas.width/2 + state[0] * this.scale;
+                this.ctx.fillStyle = '#333';
+                this.ctx.fillRect(cartX - cartWidth/2, centerY - cartHeight/2, 
+                                cartWidth, cartHeight);
+
+                const poleWidth = 6;
+                for(let i = 0; i < numPoles; i++) {
+                    const angle = state[2 + i*2];
+                    const length = [100, 75, 50][i];
+                    
+                    this.ctx.save();
+                    this.ctx.translate(cartX, centerY);
+                    this.ctx.rotate(-angle);
+                    
+                    this.ctx.fillStyle = ['#e74c3c', '#3498db', '#2ecc71'][i];
+                    this.ctx.fillRect(-poleWidth/2, -length, poleWidth, length);
+                    
+                    this.ctx.beginPath();
+                    this.ctx.arc(0, 0, 5, 0, 2*Math.PI);
+                    this.ctx.fillStyle = '#000';
+                    this.ctx.fill();
+                    
+                    this.ctx.restore();
+                }
+            }
+        }
+
+        // 4. Finally, define the main CartPoleAI class
         class CartPoleAI {
             constructor() {
                 this.numPoles = 1;
@@ -252,6 +327,10 @@
 
                 document.getElementById('resetSystem').addEventListener('click', () => {
                     this.reset();
+                });
+            }
+
+            reset();
                 });
             }
 
